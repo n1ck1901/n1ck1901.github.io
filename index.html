@@ -67,14 +67,14 @@
     }
     
     function storage() {
-    var c = prompt("Please enter in your name for storage purposes","")
+    var c = prompt("What is your name?","")
     var thenewdate = new Date ();
     thenewdate.setTime(thenewdate.getTime() + (5*24*60*60*1000));
     SetCookie('z',c,thenewdate);
     }
 
     function change() {
-    var c = prompt("Please enter in your name for storage purposes","")
+    var c = prompt("What is your name?","")
     var thenewdate = new Date ();
     thenewdate.setTime(thenewdate.getTime() + (5*24*60*60*1000));
     SetCookie('z',c,thenewdate);
@@ -83,7 +83,6 @@
 
 var z = GetCookie('z');
 document.write("<center>Hi, "+z+".<br>"
-+"<a href='javascript:change()'>You can change this name if you want.</a></center>")
 //-->
 
 </script>
