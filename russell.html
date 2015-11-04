@@ -1,0 +1,513 @@
+// go board game implemented in Khan Academy's CS programming sandbox
+// using JavaScript and Processing.js.
+//
+// go, like chess, is a strategy game popular in East Asia. 
+// The objective to use one's stones to surround a larger total area of the board 
+// than the opponent.
+// 
+// Usage:
+// - click around the board to place a stone (black plays first).
+// - press u to undo
+// - press r to redo (note: future history is lost if you play on a past board-state)
+// - positional superko enabled (board position repetition disallowed)
+//
+// Created by Alberto Leal <github.com/dashed> in April 2014.
+
+// definitions
+var
+n,
+goban = {},
+canvas = {},
+stone = {};
+
+goban.gutter = 40;
+goban.size = 13;
+goban.board = [];
+goban.history = {};
+goban.moves = [];
+goban.currentMove = -1;
+
+canvas.length = width - goban.gutter;
+canvas.start = {};
+canvas.end = {};
+// bounds
+canvas.start.x = goban.gutter;
+canvas.start.y = 0;
+canvas.end.x = width;
+canvas.end.y = canvas.length;
+
+stone.dia = canvas.length/goban.size;
+// color defs
+stone.BLACK = 0;
+stone.WHITE = 1;
+stone.EMPTY = 2;
+stone.color = {};
+stone.color.black = [0, 0, 0];
+stone.color.white = [255, 255, 255];
+
+goban.stone = function(x, y, val) {
+    
+    // row-major order
+    var offset = ((y-1) * goban.size) + (x-1);
+    if(val === undefined) {
+        return goban.board[offset];
+    }
+
+    switch(val) {
+        case stone.BLACK:
+        case stone.WHITE:
+        case stone.EMPTY:
+            break;
+        default:
+            throw new Error('invalid stone color');
+    }
+    
+    goban.board[offset] = val;
+    return val;
+
+};
+
+goban.hash = function() {
+    
+    // Source: http://stackoverflow.com/a/15710692/412627
+    var hash = function(s) {
+      return s.split("").reduce((function(a, b) {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+      }), 0);
+    };
+    
+    return hash(goban.board.join(','));
+};
+
+// check if current board-state is repeated 
+goban.repeated = function() {
+    return goban.history[goban.hash()] === true;
+};
+
+// commit move to history
+goban.commit = function(move) {
+    var k = goban.hash();
+    goban.history[k] = true;
+    
+    // delete future history
+    var n = goban.moves.length - 1;
+    while(n > goban.currentMove) {
+        delete goban.history[goban.moves[n].hash];
+        goban.moves.pop();
+        n--;
+    }
+    
+    move.hash = k;
+    goban.moves.push(move);
+    goban.currentMove++;
+};
+
+goban.undo = function() {
+    
+    if ((goban.currentMove - 1) < -1) {
+        return null;
+    }
+    var move = goban.moves[goban.currentMove];
+    
+    // remove placed stone
+    goban.stone(move.coord[0],move.coord[1], stone.EMPTY);
+    
+    // put back captured stones
+    move.captured.stones.forEach(function(captured) {
+        goban.stone(captured[0], captured[1], move.captured.color);
+    });
+    
+    // remove move from history
+    delete goban.history[move.hash];
+    
+    goban.currentMove--;
+    
+    return move;
+};
+
+goban.redo = function() {
+    if ((goban.currentMove + 1) >=  goban.moves.length) {
+        return null;
+    }
+    
+    var move = goban.moves[goban.currentMove+1];
+    
+    // put placed stone
+    goban.stone(move.coord[0],move.coord[1], move.color);
+    
+    // remove captured stones
+    move.captured.stones.forEach(function(captured) {
+        goban.stone(captured[0], captured[1], move.EMPTY);
+    });
+    
+    // add move to history
+    goban.history[move.hash] = true;
+    
+    goban.currentMove++;
+    
+    return move;
+};
+
+// board setup
+n = goban.size * goban.size;
+while(n --> 0) {
+    goban.board[n] = stone.EMPTY;
+}
+
+// color of next stone to play
+goban.turn = stone.BLACK;
+
+
+// draw goban board
+stroke(0, 0, 0);
+
+n = goban.size;
+while(n --> 0) {
+    var
+    offset = stone.dia/2 + n * stone.dia,
+    offset2 = stone.dia/2;
+    
+    // vertical lines
+    line(canvas.start.x + offset, canvas.start.y + offset2, canvas.start.x + offset, canvas.end.y - offset2);
+    // horizontal lines
+    line(canvas.start.x + offset2, canvas.start.y + offset, canvas.end.x - offset2, canvas.start.y + offset);
+    
+    // labels
+    fill(0, 0, 0);
+    
+    textAlign(CENTER, BOTTOM);
+    textSize(15);
+    text(n+1, canvas.start.x + offset, width); 
+    
+    textAlign(RIGHT, CENTER);
+    text(goban.size-n, canvas.start.x-goban.gutter/4, canvas.start.y + offset); 
+    
+}
+
+// gui actions
+var placeStone = function(x, y, colour) {
+
+    if(colour === stone.EMPTY) {
+        return;
+    }
+
+    var
+    _x = x-1,
+    _y = goban.size-y;
+
+    if(colour === stone.BLACK) {
+        fill.apply(this, stone.color.black);
+    } else {
+        fill.apply(this, stone.color.white);
+    }
+
+    stroke(0, 0, 0);
+    strokeWeight(2);
+    
+    ellipse(canvas.start.x + stone.dia/2 + _x * stone.dia,
+    canvas.start.y + stone.dia/2 + _y * stone.dia, 
+    stone.dia, stone.dia);
+
+};
+
+var removeStone = function(x, y) {
+
+    var
+    _x = x-1,
+    _y = goban.size-y,
+    s_x = canvas.start.x + stone.dia/2 + _x * stone.dia,
+    s_y = canvas.start.y + stone.dia/2 + _y * stone.dia;
+
+    // hide stone
+    fill(255, 255, 255);
+    noStroke();
+    rect(s_x - stone.dia/2 -1, s_y - stone.dia/2 -1, stone.dia+3, stone.dia+3);
+
+    // repair lines
+    fill(0, 0, 0);
+    stroke(0, 0, 0);
+    strokeWeight(1);
+
+    var
+    hor_x = s_x - stone.dia/2,
+    ver_y = s_y - stone.dia/2;
+
+    var
+    hor_x_start = (hor_x < canvas.start.x + stone.dia/2) ?  s_x : hor_x - 1,
+    hor_x_end = (hor_x_start + stone.dia > canvas.end.x - stone.dia/2) ? canvas.end.x - stone.dia/2: hor_x_start + stone.dia + 2,
+
+    ver_y_start = (ver_y < canvas.start.y + stone.dia/2) ?  canvas.start.y + stone.dia/2 : ver_y-1,
+    ver_y_end = (ver_y_start + stone.dia > canvas.end.y - stone.dia/2) ? canvas.end.y - stone.dia/2 : ver_y_start + stone.dia + 2;
+    
+    line(hor_x_start, s_y, hor_x_end, s_y);
+    line(s_x, ver_y_start, s_x, ver_y_end);
+};
+
+// Get any captured stones of specified colour at (x,y).
+// Also get any neighbouring stones.
+// flood-fill implementation.
+var getCapturedStones = function(x,y, colour) {
+    
+    var
+    visited = {},
+    pack = {},
+    adjacent = [],
+    captured = [],
+    queue = [];
+    queue.push([x,y]);
+    
+    pack.adjacent = adjacent;
+    pack.captured = captured;
+    
+    if(goban.stone(x,y) !== colour) {
+        return pack;
+    }
+    
+    var process_stone = function(x,y) {
+        var col = goban.stone(x,y);
+        
+        if(col === stone.EMPTY) {
+            return stone.EMPTY;
+        }
+        if(visited[[x,y]] === 1) {
+            return false;
+        }
+        if(col !== colour) {
+            if(visited[[x,y]] !== 1) {
+                visited[[x,y]] = 1;
+                adjacent.push([x,y]);
+            }
+            return false;
+        }
+        
+        visited[[x,y]] = 1;
+        captured.push([x,y]);
+        
+        // check if north is visited
+        if(y+1 <= goban.size && visited[[x, y+1]] !== 1) {
+            queue.push([x, y+1]);
+        }
+        // check if south is visited
+        if(y-1 >=1 && visited[[x, y-1]] !== 1) {
+            queue.push([x, y-1]);
+        }
+        
+        return true;
+    };
+    
+    while(queue.length > 0) {
+        var 
+        _stone = queue.pop(),
+        status = process_stone.apply(this, _stone),
+        w = _stone[0], e = _stone[0];
+        
+        if(status === stone.EMPTY) {
+            pack.captured = [];
+            return pack;
+        } else if(status === false) {
+            continue;
+        }
+        
+        while(--w >= 1) {
+            if(visited[[w, _stone[1]]] === 1) {
+                break;
+            }
+            status = process_stone(w, _stone[1]);
+            if(status === stone.EMPTY) {
+                pack.captured = [];
+                return pack;
+            } else if(status === false) {
+                break;
+            }
+        }
+        
+        while(++e <= goban.size) {
+            if(visited[[e, _stone[1]]] === 1) {
+                break;
+            }
+            status = process_stone(e, _stone[1]);
+            if(status === stone.EMPTY) {
+                pack.captured = [];
+                return pack;
+            } else if(status === false) {
+                break;
+            }
+        }
+    }
+    return pack;
+};
+
+var mouseClicked = function() {
+    
+    if(mouseButton !== LEFT) {
+        return;
+    }
+    
+    var 
+    _x1 = floor((mouseX - canvas.start.x)/stone.dia) + 1,
+    _x2 = ceil((mouseX - canvas.start.x)/stone.dia-1) + 1,
+    _y1 = goban.size-(floor(mouseY/stone.dia)),
+    _y2 = goban.size-(ceil(mouseY/stone.dia-1));
+    
+    if (_x1 !== _x2 || _y1 !== _y2 || _x1 <= 0 || _y1 <= 0) {
+        return;
+    }
+    
+    // Placing a stone of his color on an empty intersection
+    if(goban.stone(_x1, _y1) !== stone.EMPTY) {
+        return;
+    }
+    
+    goban.stone(_x1, _y1, goban.turn);
+        
+    // Removing from the board any stones of his opponent's color that have no liberties.
+    var enemy_colour;
+    if(goban.turn === stone.WHITE) {
+        enemy_colour = stone.BLACK;
+    } else {
+        enemy_colour = stone.WHITE;
+    }
+        
+    var adjacent_stones = [];
+    if(_x1-1 >= 1) {
+        adjacent_stones.push([_x1-1, _y1]);
+    }
+    if(_x1+1 <= goban.size) {
+        adjacent_stones.push([_x1+1, _y1]);
+    }
+    if(_y1-1>=1) {
+        adjacent_stones.push([_x1, _y1-1]);
+    }
+    if(_y1+1<=goban.size) {
+        adjacent_stones.push([_x1, _y1+1]);
+    }
+    
+    var
+    captured_stones = [];
+        
+    adjacent_stones.forEach(function(_stone) {
+        var pack = getCapturedStones(_stone[0], _stone[1], enemy_colour);
+        captured_stones.push(pack);
+        
+        pack.captured.forEach(function(_stone) {
+            goban.stone(_stone[0], _stone[1], stone.EMPTY);
+        });
+    });
+    
+
+    var suicide = getCapturedStones(_x1, _y1, goban.turn);
+    if(suicide.captured.length > 0 || goban.repeated() === true) {
+        // disallow self-capture/suicide or repeated board-state
+
+        // revert
+        goban.stone(_x1, _y1, stone.EMPTY);
+        
+        captured_stones.forEach(function(pack) {
+            pack.captured.forEach(function(_stone) {
+                goban.stone(_stone[0], _stone[1], enemy_colour);
+            });
+        });
+        
+        return;
+    } else {
+        
+        var 
+        dead_stones = [],
+        adjacent = [];
+        
+        placeStone(_x1,_y1, goban.turn);
+        
+        captured_stones.forEach(function(pack) {
+            pack.captured.forEach(function(_stone) {
+                removeStone(_stone[0], _stone[1]);
+                
+                dead_stones.push(_stone);
+            });
+            if(pack.captured.length > 0) {
+                pack.adjacent.forEach(function(_stone) {
+                    placeStone(_stone[0], _stone[1], goban.stone.apply(this, _stone));
+                    
+                    adjacent.push(_stone);
+                });                
+            }
+        });
+    
+        // record move and commit to history
+        var move = {};
+        move.coord = [_x1, _y1];
+        move.color = goban.turn;
+        move.captured = {};
+        move.captured.color = enemy_colour;
+        move.captured.stones = dead_stones;
+        move.captured.adjacent = adjacent;
+        
+        goban.commit(move);
+    }
+
+    if(goban.turn === stone.WHITE) {
+        goban.turn = stone.BLACK;
+    } else {
+        goban.turn = stone.WHITE;
+    }
+    
+};
+
+// undo/redo
+var keyReleased = function() {
+  
+    if(keyCode === 85) {
+        
+        var move = goban.undo();
+        if(move === null) {
+            return;
+        }
+        
+        // remove placed stone
+        removeStone(move.coord[0], move.coord[1]);
+        
+        // replace adjacent
+        if(move.coord[0]-1 >= 1) {
+            placeStone(move.coord[0]-1, move.coord[1], 
+            goban.stone(move.coord[0]-1, move.coord[1]));
+        }
+        if(move.coord[1]-1 >= 1) {
+            placeStone(move.coord[0], move.coord[1]-1, 
+            goban.stone(move.coord[0], move.coord[1]-1));
+        }
+        if(move.coord[0]+1 <= goban.size) {
+            placeStone(move.coord[0]+1, move.coord[1], 
+            goban.stone(move.coord[0]+1, move.coord[1]));
+        }
+        if(move.coord[1]+1 <= goban.size) {
+            placeStone(move.coord[0], move.coord[1]+1, 
+            goban.stone(move.coord[0], move.coord[1]+1));
+        }
+        
+        
+        // place captured stones
+        move.captured.stones.forEach(function(captured){
+            placeStone(captured[0], captured[1], move.captured.color);
+        });
+        
+        goban.turn = move.color;
+    } else if(keyCode === 82) {
+        
+        var move = goban.redo();
+        if(move === null) {
+            return;
+        }
+        
+        // put placed stone
+        placeStone(move.coord[0], move.coord[1], move.color);
+        
+        // remove captured stones
+        move.captured.stones.forEach(function(captured){
+            removeStone(captured[0], captured[1]);
+        });
+        
+        move.captured.adjacent.forEach(function(adjacent){
+            placeStone(adjacent[0], adjacent[1], goban.stone.apply(this, adjacent));
+        });
+    }
+};
